@@ -1,0 +1,121 @@
+-- 1. Identify product which are not sold to any customer yet. Rejected orders can also be considered as not sold yet.
+SELECT *
+FROM products
+WHERE product_id NOT IN (SELECT oi.product_id FROM order_items oi join orders o  
+                    on o.order_id = oi.order_id where o.order_status != 3);
+
+
+-- 2. Display the store name and their employee names. Output should have 1 record for each store with staff names can be comma separated.
+select sto.store_name, listagg(concat(sta.first_name,' ',sta.last_name), ', ') as name
+from stores sto join staffs sta
+on sto.store_id = sta.store_id
+group by sto.store_name;
+
+
+
+-- 3. Display the most in stock product in each store.
+select store_id, product_id, qnt as inventory
+from (
+    select store_id, product_id, sum(quantity) as qnt, rank() over (partition by store_id order by sum(quantity) desc) as rnk
+    from stocks
+    group by store_id, product_id) as temp
+where rnk = 1;
+
+
+-- 4. For all the orders which are neither completed nor rejected and display the order id, order status description, 
+-- product name, quantity ordered, total cost, store name, staff name, customer name
+SELECT 
+    oi.order_id, 
+    o.order_status, 
+    p.product_name, 
+    SUM(oi.quantity) AS quantity_ordered, 
+    SUM(oi.quantity * oi.list_price * (1 - oi.discount)) AS total_cost, 
+    sto.store_name, 
+    CONCAT(sta.first_name, ' ', sta.last_name) AS staff_name,  
+    CONCAT(c.first_name, ' ', c.last_name) AS customer_name
+FROM order_items oi 
+JOIN orders o ON oi.order_id = o.order_id
+JOIN products p ON p.product_id = oi.product_id
+JOIN stores sto ON o.store_id = sto.store_id
+JOIN staffs sta ON o.staff_id = sta.staff_id
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.order_status NOT IN (3,4)
+GROUP BY oi.order_id, o.order_status, p.product_name, sto.store_name, sta.first_name, sta.last_name, c.first_name, c.last_name;
+
+
+
+-- 5. Find the most sold product. Display the product name, brand name, category name. Only completed orders should be considered.
+select p.product_name, b.brand_name, c.category_name, count(*) as cnt from order_items oi
+join orders o on oi.order_id = o.order_id
+join products p on oi.product_id = p.product_id
+join brands b on p.brand_id = b.brand_id
+join categories c on p.category_id = c.category_id
+where o.order_status = 4
+group by p.product_name, b.brand_name, c.category_name
+order by cnt desc
+limit 1;
+
+
+-- 6. Identify staff who have sold more than 1000 products.
+select * from (
+select concat(s.first_name, ' ', s.last_name) as name, sum(oi.quantity) as num_of_products_sold
+from orders o join order_items oi on o.order_id = oi.order_id
+join staffs s on o.staff_id = s.staff_id
+where o.order_status = 4
+group by 1) as temp
+where num_of_products_sold >= 1000;
+
+
+-- 7. Identify the 3 most selling bike categories.
+select c.category_name, sum(oi.quantity) as cnt_of_sold_bikes
+from products p join order_items oi on p.product_id = oi.product_id
+join categories c on p.category_id = c.category_id
+join orders o on o.order_id = oi.order_id
+where o.order_status = 4
+group by 1
+order by cnt_of_sold_bikes desc
+limit 3;
+
+
+-- 8. Which city hosts most frequent customers? If multiple customers have same frequency then consider them as 1.
+select distinct city from (
+                        select c.customer_id, c.city, count(o.order_id) as no_of_customers, rank() over (order by count(o.order_id) desc) as rnk
+                        from orders o join customers c
+                        on o.customer_id = c.customer_id
+                        group by c.customer_id, c.city) as temp
+where rnk = 1;
+
+-- 9. Display the brand with the least no of in stock products
+select brand_name, stock_left from (
+                        select b.brand_name, sum(s.quantity) as stock_left, rank() over (order by sum(s.quantity)) as rnk
+                        from stocks s join products p
+                        on s.product_id = p.product_id
+                        join brands b on b.brand_id = p.brand_id
+                        group by b.brand_name) as temp
+where rnk = 1;
+
+
+-- 10. Which store has the most and least no of customers? Display 2 columns for highest customer and lowest customer. 
+-- Mention also customer count suffixed to customer name.
+WITH store_count AS (
+    SELECT s.store_name, COUNT(DISTINCT o.customer_id) AS customer_count
+    FROM orders o 
+    JOIN stores s ON o.store_id = s.store_id
+    GROUP BY s.store_name
+),
+highest_store AS (
+    SELECT store_name, customer_count AS highest_customer 
+    FROM store_count
+    ORDER BY customer_count DESC
+    LIMIT 1
+),
+lowest_store AS (
+    SELECT store_name, customer_count AS lowest_customer 
+    FROM store_count
+    ORDER BY customer_count ASC
+    LIMIT 1
+)
+SELECT 
+    CONCAT(h.store_name, ' - ', h.highest_customer) AS highest_customer, 
+    CONCAT(l.store_name, ' - ', l.lowest_customer) AS lowest_customer
+FROM highest_store h, lowest_store l;
